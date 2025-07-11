@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
+import QRCode from "qrcode";
 import {
   Card,
   CardContent,
@@ -38,8 +39,9 @@ import Icon from "@/components/ui/icon";
 export default function Index() {
   const [selectedRoute, setSelectedRoute] = useState("");
   const [selectedSeat, setSelectedSeat] = useState("");
-
-  const busRoutes = [
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [adminPassword, setAdminPassword] = useState("");
+  const [busRoutes, setBusRoutes] = useState([
     {
       id: "1",
       route: "Нижний Новгород - Арзамас",
@@ -68,9 +70,8 @@ export default function Index() {
       price: 150,
       seats: 5,
     },
-  ];
-
-  const trainRoutes = [
+  ]);
+  const [trainRoutes, setTrainRoutes] = useState([
     {
       id: "1",
       route: "Нижний Новгород - Москва",
@@ -99,7 +100,159 @@ export default function Index() {
       price: 220,
       seats: 32,
     },
-  ];
+  ]);
+  const [newRoute, setNewRoute] = useState({
+    route: "",
+    time: "",
+    price: 0,
+    seats: 0,
+    type: "bus",
+  });
+  const [bookingData, setBookingData] = useState({
+    email: "",
+    phone: "",
+    passengers: 1,
+    selectedRoute: "",
+    transportType: "bus",
+  });
+  const [qrCodeUrl, setQrCodeUrl] = useState("");
+  const [ticketGenerated, setTicketGenerated] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Функции для админки
+  const handleAdminLogin = () => {
+    if (adminPassword === "npk2024admin") {
+      setIsAdmin(true);
+      setAdminPassword("");
+    } else {
+      alert("Неверный пароль!");
+    }
+  };
+
+  const handleAddRoute = () => {
+    if (
+      newRoute.route &&
+      newRoute.time &&
+      newRoute.price > 0 &&
+      newRoute.seats > 0
+    ) {
+      const newId = (
+        Math.max(
+          ...(newRoute.type === "bus" ? busRoutes : trainRoutes).map((r) =>
+            parseInt(r.id),
+          ),
+        ) + 1
+      ).toString();
+      const route = {
+        id: newId,
+        route: newRoute.route,
+        time: newRoute.time,
+        price: newRoute.price,
+        seats: newRoute.seats,
+      };
+
+      if (newRoute.type === "bus") {
+        setBusRoutes([...busRoutes, route]);
+      } else {
+        setTrainRoutes([...trainRoutes, route]);
+      }
+
+      setNewRoute({ route: "", time: "", price: 0, seats: 0, type: "bus" });
+      alert("Маршрут добавлен!");
+    }
+  };
+
+  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const csvText = e.target?.result as string;
+          const lines = csvText.split("\n");
+          const newRoutes = lines
+            .slice(1)
+            .map((line, index) => {
+              const [route, time, price, seats] = line.split(",");
+              return {
+                id: (
+                  busRoutes.length +
+                  trainRoutes.length +
+                  index +
+                  1
+                ).toString(),
+                route: route?.trim() || "",
+                time: time?.trim() || "",
+                price: parseInt(price?.trim() || "0"),
+                seats: parseInt(seats?.trim() || "0"),
+              };
+            })
+            .filter((route) => route.route && route.time);
+
+          if (newRoute.type === "bus") {
+            setBusRoutes([...busRoutes, ...newRoutes]);
+          } else {
+            setTrainRoutes([...trainRoutes, ...newRoutes]);
+          }
+          alert(`Загружено ${newRoutes.length} маршрутов`);
+        } catch (error) {
+          alert("Ошибка загрузки файла");
+        }
+      };
+      reader.readAsText(file);
+    }
+  };
+
+  // Функция генерации QR-кода и отправки билета
+  const generateTicket = async () => {
+    if (!bookingData.email || !bookingData.selectedRoute) {
+      alert("Заполните все поля!");
+      return;
+    }
+
+    const ticketId = `NPK-${Date.now()}`;
+    const selectedRouteData =
+      bookingData.transportType === "bus"
+        ? busRoutes.find((r) => r.id === bookingData.selectedRoute)
+        : trainRoutes.find((r) => r.id === bookingData.selectedRoute);
+
+    const ticketData = {
+      id: ticketId,
+      route: selectedRouteData?.route,
+      time: selectedRouteData?.time,
+      price: selectedRouteData?.price,
+      passengers: bookingData.passengers,
+      email: bookingData.email,
+      phone: bookingData.phone,
+      type: bookingData.transportType,
+      date: new Date().toLocaleDateString("ru-RU"),
+    };
+
+    try {
+      // Генерация QR-кода
+      const qrCodeData = JSON.stringify(ticketData);
+      const qrCodeDataURL = await QRCode.toDataURL(qrCodeData, {
+        width: 256,
+        margin: 2,
+        color: {
+          dark: "#000000",
+          light: "#FFFFFF",
+        },
+      });
+
+      setQrCodeUrl(qrCodeDataURL);
+      setTicketGenerated(true);
+
+      // Имитация отправки на email
+      setTimeout(() => {
+        alert(
+          `Билет отправлен на ${bookingData.email}!\nID билета: ${ticketId}`,
+        );
+      }, 1000);
+    } catch (error) {
+      alert("Ошибка генерации билета");
+    }
+  };
 
   const liveBoard = [
     {
@@ -176,14 +329,62 @@ export default function Index() {
               >
                 Табло
               </a>
+              {isAdmin && (
+                <a
+                  href="#admin"
+                  className="hover:text-npk-yellow transition-colors"
+                >
+                  Админ-панель
+                </a>
+              )}
             </nav>
-            <Button
-              variant="outline"
-              className="border-npk-yellow text-npk-yellow hover:bg-npk-yellow hover:text-npk-black"
-            >
-              <Icon name="User" size={16} className="mr-2" />
-              Войти
-            </Button>
+            <div className="flex items-center space-x-2">
+              {!isAdmin ? (
+                <Dialog>
+                  <DialogTrigger asChild>
+                    <Button
+                      variant="outline"
+                      className="border-npk-yellow text-npk-yellow hover:bg-npk-yellow hover:text-npk-black"
+                    >
+                      <Icon name="User" size={16} className="mr-2" />
+                      Войти
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>Вход для администратора</DialogTitle>
+                    </DialogHeader>
+                    <div className="space-y-4">
+                      <div>
+                        <Label htmlFor="admin-password">Пароль</Label>
+                        <Input
+                          id="admin-password"
+                          type="password"
+                          value={adminPassword}
+                          onChange={(e) => setAdminPassword(e.target.value)}
+                          placeholder="Введите пароль администратора"
+                        />
+                      </div>
+                      <Button
+                        onClick={handleAdminLogin}
+                        className="w-full bg-npk-yellow text-npk-black hover:bg-npk-yellow/90"
+                      >
+                        Войти
+                      </Button>
+                    </div>
+                  </DialogContent>
+                </Dialog>
+              ) : (
+                <Button
+                  onClick={() => setIsAdmin(false)}
+                  variant="outline"
+                  className="border-npk-red text-npk-red hover:bg-npk-red hover:text-white"
+                >
+                  <Icon name="LogOut" size={16} className="mr-2" />
+                  Выйти
+                </Button>
+              )}
+            </div>
           </div>
         </div>
       </header>
@@ -404,8 +605,14 @@ export default function Index() {
                       <div>
                         <Label htmlFor="route">Маршрут</Label>
                         <Select
-                          value={selectedRoute}
-                          onValueChange={setSelectedRoute}
+                          value={bookingData.selectedRoute}
+                          onValueChange={(value) =>
+                            setBookingData({
+                              ...bookingData,
+                              selectedRoute: value,
+                              transportType: "bus",
+                            })
+                          }
                         >
                           <SelectTrigger>
                             <SelectValue placeholder="Выберите маршрут" />
@@ -424,7 +631,15 @@ export default function Index() {
                         <Label htmlFor="passengers">
                           Количество пассажиров
                         </Label>
-                        <Select>
+                        <Select
+                          value={bookingData.passengers.toString()}
+                          onValueChange={(value) =>
+                            setBookingData({
+                              ...bookingData,
+                              passengers: parseInt(value),
+                            })
+                          }
+                        >
                           <SelectTrigger>
                             <SelectValue placeholder="Выберите количество" />
                           </SelectTrigger>
@@ -439,18 +654,69 @@ export default function Index() {
 
                       <div>
                         <Label htmlFor="email">Email для билета</Label>
-                        <Input type="email" placeholder="your@email.com" />
+                        <Input
+                          type="email"
+                          placeholder="your@email.com"
+                          value={bookingData.email}
+                          onChange={(e) =>
+                            setBookingData({
+                              ...bookingData,
+                              email: e.target.value,
+                            })
+                          }
+                        />
                       </div>
 
                       <div>
                         <Label htmlFor="phone">Телефон</Label>
-                        <Input type="tel" placeholder="+7 (999) 999-99-99" />
+                        <Input
+                          type="tel"
+                          placeholder="+7 (999) 999-99-99"
+                          value={bookingData.phone}
+                          onChange={(e) =>
+                            setBookingData({
+                              ...bookingData,
+                              phone: e.target.value,
+                            })
+                          }
+                        />
                       </div>
 
-                      <Button className="w-full bg-npk-yellow text-npk-black hover:bg-npk-yellow/90">
+                      <Button
+                        onClick={generateTicket}
+                        className="w-full bg-npk-yellow text-npk-black hover:bg-npk-yellow/90"
+                      >
                         <Icon name="CreditCard" size={16} className="mr-2" />
                         Забронировать и оплатить
                       </Button>
+
+                      {ticketGenerated && qrCodeUrl && (
+                        <Card className="mt-4 border-2 border-npk-yellow">
+                          <CardHeader>
+                            <CardTitle className="text-npk-black flex items-center">
+                              <Icon
+                                name="CheckCircle"
+                                size={20}
+                                className="mr-2 text-npk-yellow"
+                              />
+                              Билет сгенерирован!
+                            </CardTitle>
+                          </CardHeader>
+                          <CardContent className="text-center">
+                            <img
+                              src={qrCodeUrl}
+                              alt="QR код билета"
+                              className="mx-auto mb-4"
+                            />
+                            <p className="text-sm text-npk-gray mb-2">
+                              QR-код для предъявления в транспорте
+                            </p>
+                            <p className="text-sm font-semibold text-npk-black">
+                              Билет отправлен на {bookingData.email}
+                            </p>
+                          </CardContent>
+                        </Card>
+                      )}
                     </div>
                   </CardContent>
                 </Card>
@@ -771,6 +1037,384 @@ export default function Index() {
           </div>
         </div>
       </footer>
+
+      {/* Admin Panel */}
+      {isAdmin && (
+        <section id="admin" className="py-16 bg-npk-gray-dark text-white">
+          <div className="container mx-auto px-4">
+            <div className="text-center mb-12">
+              <h2 className="text-4xl font-bold mb-4">
+                <Icon
+                  name="Settings"
+                  size={32}
+                  className="inline mr-3 text-npk-yellow"
+                />
+                Админ-панель
+              </h2>
+              <p className="text-xl text-gray-300">
+                Управление расписанием и маршрутами
+              </p>
+            </div>
+
+            <div className="grid lg:grid-cols-2 gap-8">
+              {/* Добавление нового маршрута */}
+              <Card className="bg-npk-black border-npk-yellow">
+                <CardHeader>
+                  <CardTitle className="text-white flex items-center">
+                    <Icon
+                      name="Plus"
+                      size={24}
+                      className="mr-2 text-npk-yellow"
+                    />
+                    Добавить маршрут
+                  </CardTitle>
+                  <CardDescription className="text-gray-300">
+                    Создание нового маршрута
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div>
+                    <Label htmlFor="route-type" className="text-white">
+                      Тип транспорта
+                    </Label>
+                    <Select
+                      value={newRoute.type}
+                      onValueChange={(value) =>
+                        setNewRoute({ ...newRoute, type: value })
+                      }
+                    >
+                      <SelectTrigger className="bg-npk-gray text-white">
+                        <SelectValue placeholder="Выберите тип" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="bus">Автобус</SelectItem>
+                        <SelectItem value="train">Электропоезд</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div>
+                    <Label htmlFor="route-name" className="text-white">
+                      Маршрут
+                    </Label>
+                    <Input
+                      value={newRoute.route}
+                      onChange={(e) =>
+                        setNewRoute({ ...newRoute, route: e.target.value })
+                      }
+                      placeholder="Нижний Новгород - Москва"
+                      className="bg-npk-gray text-white placeholder-gray-400"
+                    />
+                  </div>
+
+                  <div>
+                    <Label htmlFor="route-time" className="text-white">
+                      Время отправления
+                    </Label>
+                    <Input
+                      type="time"
+                      value={newRoute.time}
+                      onChange={(e) =>
+                        setNewRoute({ ...newRoute, time: e.target.value })
+                      }
+                      className="bg-npk-gray text-white"
+                    />
+                  </div>
+
+                  <div>
+                    <Label htmlFor="route-price" className="text-white">
+                      Цена (₽)
+                    </Label>
+                    <Input
+                      type="number"
+                      value={newRoute.price}
+                      onChange={(e) =>
+                        setNewRoute({
+                          ...newRoute,
+                          price: parseInt(e.target.value) || 0,
+                        })
+                      }
+                      placeholder="180"
+                      className="bg-npk-gray text-white placeholder-gray-400"
+                    />
+                  </div>
+
+                  <div>
+                    <Label htmlFor="route-seats" className="text-white">
+                      Количество мест
+                    </Label>
+                    <Input
+                      type="number"
+                      value={newRoute.seats}
+                      onChange={(e) =>
+                        setNewRoute({
+                          ...newRoute,
+                          seats: parseInt(e.target.value) || 0,
+                        })
+                      }
+                      placeholder="50"
+                      className="bg-npk-gray text-white placeholder-gray-400"
+                    />
+                  </div>
+
+                  <Button
+                    onClick={handleAddRoute}
+                    className="w-full bg-npk-yellow text-npk-black hover:bg-npk-yellow/90"
+                  >
+                    <Icon name="Plus" size={16} className="mr-2" />
+                    Добавить маршрут
+                  </Button>
+                </CardContent>
+              </Card>
+
+              {/* Загрузка расписания из файла */}
+              <Card className="bg-npk-black border-npk-yellow">
+                <CardHeader>
+                  <CardTitle className="text-white flex items-center">
+                    <Icon
+                      name="Upload"
+                      size={24}
+                      className="mr-2 text-npk-yellow"
+                    />
+                    Загрузка расписания
+                  </CardTitle>
+                  <CardDescription className="text-gray-300">
+                    Загрузка маршрутов из CSV файла
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div>
+                    <Label htmlFor="upload-type" className="text-white">
+                      Тип транспорта
+                    </Label>
+                    <Select
+                      value={newRoute.type}
+                      onValueChange={(value) =>
+                        setNewRoute({ ...newRoute, type: value })
+                      }
+                    >
+                      <SelectTrigger className="bg-npk-gray text-white">
+                        <SelectValue placeholder="Выберите тип" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="bus">Автобус</SelectItem>
+                        <SelectItem value="train">Электропоезд</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div>
+                    <Label htmlFor="csv-file" className="text-white">
+                      CSV файл
+                    </Label>
+                    <Input
+                      ref={fileInputRef}
+                      type="file"
+                      accept=".csv"
+                      onChange={handleFileUpload}
+                      className="bg-npk-gray text-white file:bg-npk-yellow file:text-npk-black file:border-0"
+                    />
+                    <p className="text-sm text-gray-400 mt-2">
+                      Формат: маршрут,время,цена,места
+                    </p>
+                  </div>
+
+                  <div className="bg-npk-gray p-4 rounded-lg">
+                    <h4 className="text-white font-semibold mb-2">
+                      Пример CSV:
+                    </h4>
+                    <pre className="text-sm text-gray-300">
+                      {`маршрут,время,цена,места
+Нижний Новгород - Москва,06:30,850,45
+Нижний Новгород - Казань,07:15,720,40`}
+                    </pre>
+                  </div>
+
+                  <Button
+                    onClick={() => fileInputRef.current?.click()}
+                    className="w-full bg-npk-yellow text-npk-black hover:bg-npk-yellow/90"
+                  >
+                    <Icon name="Upload" size={16} className="mr-2" />
+                    Выбрать файл для загрузки
+                  </Button>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Текущие маршруты */}
+            <div className="mt-12">
+              <Tabs defaultValue="admin-buses" className="w-full">
+                <TabsList className="grid w-full grid-cols-2 mb-8 bg-npk-black">
+                  <TabsTrigger
+                    value="admin-buses"
+                    className="text-lg data-[state=active]:bg-npk-yellow data-[state=active]:text-npk-black"
+                  >
+                    <Icon name="Bus" size={20} className="mr-2" />
+                    Автобусы ({busRoutes.length})
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="admin-trains"
+                    className="text-lg data-[state=active]:bg-npk-yellow data-[state=active]:text-npk-black"
+                  >
+                    <Icon name="Train" size={20} className="mr-2" />
+                    Электропоезда ({trainRoutes.length})
+                  </TabsTrigger>
+                </TabsList>
+
+                <TabsContent value="admin-buses">
+                  <Card className="bg-npk-black border-npk-yellow">
+                    <CardHeader>
+                      <CardTitle className="text-white">
+                        Автобусные маршруты
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <Table>
+                        <TableHeader>
+                          <TableRow className="border-npk-gray">
+                            <TableHead className="text-npk-yellow">
+                              ID
+                            </TableHead>
+                            <TableHead className="text-npk-yellow">
+                              Маршрут
+                            </TableHead>
+                            <TableHead className="text-npk-yellow">
+                              Время
+                            </TableHead>
+                            <TableHead className="text-npk-yellow">
+                              Цена
+                            </TableHead>
+                            <TableHead className="text-npk-yellow">
+                              Места
+                            </TableHead>
+                            <TableHead className="text-npk-yellow">
+                              Действия
+                            </TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {busRoutes.map((route) => (
+                            <TableRow
+                              key={route.id}
+                              className="border-npk-gray"
+                            >
+                              <TableCell className="text-white">
+                                {route.id}
+                              </TableCell>
+                              <TableCell className="text-white">
+                                {route.route}
+                              </TableCell>
+                              <TableCell className="text-white">
+                                {route.time}
+                              </TableCell>
+                              <TableCell className="text-white">
+                                {route.price} ₽
+                              </TableCell>
+                              <TableCell className="text-white">
+                                {route.seats}
+                              </TableCell>
+                              <TableCell>
+                                <Button
+                                  variant="destructive"
+                                  size="sm"
+                                  onClick={() =>
+                                    setBusRoutes(
+                                      busRoutes.filter(
+                                        (r) => r.id !== route.id,
+                                      ),
+                                    )
+                                  }
+                                >
+                                  <Icon name="Trash2" size={14} />
+                                </Button>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+
+                <TabsContent value="admin-trains">
+                  <Card className="bg-npk-black border-npk-yellow">
+                    <CardHeader>
+                      <CardTitle className="text-white">
+                        Железнодорожные маршруты
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <Table>
+                        <TableHeader>
+                          <TableRow className="border-npk-gray">
+                            <TableHead className="text-npk-yellow">
+                              ID
+                            </TableHead>
+                            <TableHead className="text-npk-yellow">
+                              Маршрут
+                            </TableHead>
+                            <TableHead className="text-npk-yellow">
+                              Время
+                            </TableHead>
+                            <TableHead className="text-npk-yellow">
+                              Цена
+                            </TableHead>
+                            <TableHead className="text-npk-yellow">
+                              Места
+                            </TableHead>
+                            <TableHead className="text-npk-yellow">
+                              Действия
+                            </TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {trainRoutes.map((route) => (
+                            <TableRow
+                              key={route.id}
+                              className="border-npk-gray"
+                            >
+                              <TableCell className="text-white">
+                                {route.id}
+                              </TableCell>
+                              <TableCell className="text-white">
+                                {route.route}
+                              </TableCell>
+                              <TableCell className="text-white">
+                                {route.time}
+                              </TableCell>
+                              <TableCell className="text-white">
+                                {route.price} ₽
+                              </TableCell>
+                              <TableCell className="text-white">
+                                {route.seats}
+                              </TableCell>
+                              <TableCell>
+                                <Button
+                                  variant="destructive"
+                                  size="sm"
+                                  onClick={() =>
+                                    setTrainRoutes(
+                                      trainRoutes.filter(
+                                        (r) => r.id !== route.id,
+                                      ),
+                                    )
+                                  }
+                                >
+                                  <Icon name="Trash2" size={14} />
+                                </Button>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+              </Tabs>
+            </div>
+          </div>
+        </section>
+      )}
     </div>
   );
 }
